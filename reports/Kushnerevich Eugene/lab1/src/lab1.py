@@ -1,100 +1,147 @@
-import random
 import numpy as np
 import matplotlib.pyplot as plt
 
-dataset = [
-    {'x1':  5,  'x2': 6, 'label':0},
-    {'x1': -5,  'x2': 6, 'label': 1},
-    {'x1':  5,  'x2': -6, 'label':1},
-    {'x1': -5,  'x2': -6, 'label': 1}
-]
 
-class Perceptron:
-    def __init__(self, learning_rate=0.1):
-        self.w1 = random.random() - 0.5
-        self.w2 = random.random() - 0.5
-        self.bias = random.random() - 0.5
-        self.lr = learning_rate
+x = np.array([
+    [ 5,  6],
+    [-5,  6],
+    [ 5, -6],
+    [-5, -6]
+])
 
-    def activate(self, sum_val):
-        return 1 if sum_val >= 0 else 0
-    
-    def train(self, dataset):
-        error_sum = 0
-        for vector in dataset:
-            sum_val = (vector['x1'] * self.w1) + (vector['x2'] * self.w2) + self.bias
-            
-            prediction = self.activate(sum_val)
-            error = vector['label'] - prediction
+etalon_value = np.array([0, 1, 1, 1]).reshape(-1, 1)
 
-            if error != 0:
-                self.w1 += self.lr * error * vector['x1']
-                self.w2 += self.lr * error * vector['x2']
-                self.bias += self.lr * error 
 
-            error_sum += error ** 2
-        
-        return error_sum / len(dataset)
+def linear_output(weights, x, T):
+    return x @ weights - T
 
-class Visualizer:
-    def __init__(self):
-        self.fig, (self.ax_mse, self.ax_decision) = plt.subplots(1, 2, figsize=(12, 5))
 
-    def draw_results(self, mse_history, brain, dataset, user_point=None):
-        self.ax_mse.clear()
-        self.ax_mse.plot(mse_history, color="#E2E20E", linewidth=2)
-        self.ax_mse.set_title("График среднеквадратичной ошибки")
-        self.ax_mse.set_xlabel("Epochs")
-        self.ax_mse.set_ylabel("MSE")
-        self.ax_mse.grid(True)
+def online_fit(X, y, alpha=0.001, epochs=2500, eps=1e-7, mix=True):
+    N = X.shape[0]
+    W = np.zeros((X.shape[1], 1))
+    T = 0
+    mse = []
+    prev_loss = np.inf
 
-        self.ax_decision.clear()
-        self.ax_decision.set_title("График с разделяющей поверхностью")
-        
-        self.ax_decision.axhline(0, color='#eee', linewidth=1)
-        self.ax_decision.axvline(0, color='#eee', linewidth=1)
+    print(f"Старт обучения (alpha = {alpha})")
 
-        x_vals = np.linspace(-5, 5, 100)
-        if brain.w2 != 0:
-            y_vals = (-brain.w1 * x_vals - brain.bias) / brain.w2
-            self.ax_decision.plot(x_vals, y_vals, 'r-', label='Decision Line')
+    for ep in range(epochs):
+        order = np.random.permutation(N) if mix else np.arange(N)
 
-        for p in dataset:
-            color = 'blue' if p['label'] == 1 else 'orange'
-            self.ax_decision.scatter(p['x1'], p['x2'], color=color, s=100, edgecolors='black', zorder=3)
+        for idx in order:
+            x_i = X[idx:idx+1]
+            t_i = y[idx]
 
-        if user_point:
-            ux, uy, u_label = user_point['x1'], user_point['x2'], user_point['label']
-            self.ax_decision.scatter(ux, uy, c='black', marker='s', s=120, label=f"User: Class {u_label}", zorder=4)
-            self.ax_decision.text(ux + 0.5, uy, f"Class {u_label}", fontsize=9)
+            s = linear_output(W, x_i, T)
+            delta = s - t_i
 
-        self.ax_decision.set_xlim(-8, 8)
-        self.ax_decision.set_ylim(-8, 8)
-        self.ax_decision.legend()
-        self.ax_decision.grid(True, linestyle='--')
+            W -= alpha * x_i.T @ delta
+            T += alpha * delta.item()
+
+        preds = linear_output(W, X, T)
+        loss = np.mean((preds - y) ** 2)
+        mse.append(loss)
+
+        if ep % 100 == 0 and ep > 0:
+            print(f"  эпоха {ep:4d} | MSE = {loss:.8f}")
+
+        if ep > 30 and abs(loss - prev_loss) < eps:
+            print(f"  остановка на эпохе {ep}")
+            break
+
+        prev_loss = loss
+
+    print(f" Обучение завершено | итоговая MSE = {loss:.8f}\n")
+    return W, T, mse
+
+
+learning_rates = [0.0003, 0.0007, 0.0012, 0.002]
+models = {}
+
+for alpha in learning_rates:
+    W, T, err = online_fit(x, etalon_value, alpha=alpha)
+    models[alpha] = (W, T, err)
+
+
+plt.figure(figsize=(10, 5))
+for lr, (_, _, err) in models.items():
+    plt.plot(err, label=f"lr={lr}", lw=1.5)
+
+plt.yscale("log")
+plt.xlabel("Эпохи")
+plt.ylabel("MSE")
+plt.grid(alpha=0.35)
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+
+best_alpha = min(models, key=lambda k: models[k][2][-1])
+W, T = models[best_alpha][0], models[best_alpha][1]
+print(f" Выбрана модель с alpha = {best_alpha}\n")
+
+
+added_pts = []
+added_cls = []
+
+print("Введите координаты точки (x_1 x_2), либо exit\n")
+
+while True:
+    user_input = input(" -> ").strip()
+    if user_input in ("exit", ""):
+        break
+
+    try:
+        x1_val, x2_val = map(float, user_input.split())
+        point = np.array([[x1_val, x2_val]])
+
+        score = linear_output(W, point, T)[0, 0]
+        cls = 1 if score >= 0.5 else 0
+        color_name = "красный" if cls == 1 else "синий"
+
+        print(f"  Значение S = {score:>9.6f}")
+        print(f"  Класс     = {cls}")
+
+        added_pts.append([x1_val, x2_val])
+        added_cls.append(cls)
+
+        fig, ax = plt.subplots(figsize=(8, 8))
+
+        ax.scatter(
+            x[etalon_value[:,0]==0][:,0],
+            x[etalon_value[:,0]==0][:,1],
+            s=150, color="royalblue", edgecolors="black", label="класс 0"
+        )
+
+        ax.scatter(
+            x[etalon_value[:,0]==1][:,0],
+            x[etalon_value[:,0]==1][:,1],
+            s=150, color="crimson", edgecolors="black", label="класс 1"
+        )
+
+        w1, w2 = W.flatten()
+        xs = np.linspace(-9, 9, 400)
+        if abs(w2) > 1e-8:
+            ys = (T + 0.5 - w1 * xs) / w2
+            ax.plot(xs, ys, "green", lw=2.3, label="граница")
+
+        for p, c in zip(added_pts, added_cls):
+            ax.scatter(p[0], p[1],
+                       marker="X",
+                       s=220,
+                       color="crimson" if c else "royalblue",
+                       edgecolors="black")
+
+        ax.set_xlim(-9, 9)
+        ax.set_ylim(-9, 9)
+        ax.set_xlabel("x")
+        ax.set_ylabel("y")
+        ax.grid(alpha=0.3)
+        ax.legend()
         plt.tight_layout()
         plt.show()
 
-brain = Perceptron(learning_rate=0.01)
-viz = Visualizer()
-mse_history = []
+    except Exception:
+        print("Ошибка ввода. Используйте формат: x y\n")
 
-print("Начинается процесс обучения")
-for epoch in range(200):
-    mse = brain.train(dataset)
-    mse_history.append(mse)
-    if epoch % 10 == 0:
-        print(f"Epoch {epoch}: MSE = {mse}")
-    if mse == 0:
-        print(f"Процесс обучения завершено досрочно на эпохе {epoch}")
-        break
-
-def predict_user_point(x1, x2):
-    sum_val = x1 * brain.w1 + x2 * brain.w2 + brain.bias
-    label = brain.activate(sum_val)
-    print(f"User Point ({x1}, {x2}) -> Class: {label}")
-    return {'x1': x1, 'x2': x2, 'label': label}
-
-user_pt = predict_user_point(0, -3) 
-
-viz.draw_results(mse_history, brain, dataset, user_pt)
+print("Работа программы завершена.")

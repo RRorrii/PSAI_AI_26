@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; gap: 20px; }
+        .canvas-container { display: flex; gap: 20px; }
+        canvas { border: 1px solid #ccc; background: #fff; }
+        .controls { background: #f0f0f0; padding: 15px; border-radius: 8px; }
+    </style>
+</head>
+<body>
+    <h2>adaptive</h2>
+
+    <div class="canvas-container">
+        <div>
+            <p>error graph Es(p)</p>
+            <canvas id="mseChart" width="400" height="300"></canvas>
+        </div>
+        <div>
+            <p>dividing line (adaptive method)</p>
+            <canvas id="decisionChart" width="400" height="400"></canvas>
+        </div>
+    </div>
+
+    <div class="controls">
+        <strong>Enter your x1 and x2</strong>
+        <input type="number" id="inpX1" placeholder="x1" step="0.1" style="width: 60px;">
+        <input type="number" id="inpX2" placeholder="x2" step="0.1" style="width: 60px;">
+        <button id="btnPredict">find class</button>
+        <span id="resultLabel" style="margin-left: 10px; font-weight: bold;"></span>
+    </div>
+
+    <script src="perceptron.js"></script>
+    <script src="visualizer.js"></script>
+    <script src="main.js"></script>
+</body>
+</html>

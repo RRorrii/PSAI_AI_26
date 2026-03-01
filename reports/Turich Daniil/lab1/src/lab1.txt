@@ -1,0 +1,230 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+X_raw = np.array([
+    [3.0, 6.0],
+    [-3.0, 6.0],
+    [3.0, -6.0],
+    [-3.0, -6.0],
+], dtype=float)
+
+E = np.array([0.0, 0.0, 1.0, 1.0], dtype=float)
+
+x_scale = np.max(np.abs(X_raw), axis=0)
+X = X_raw / x_scale
+
+
+def step_01(s: float, threshold: float = 0.5) -> int:
+    return 1 if s >= threshold else 0
+
+
+def mse_stable(y_lin: np.ndarray, e: np.ndarray) -> float:
+    diff = np.clip(e - y_lin, -1e6, 1e6)
+    return float(np.mean(diff * diff))
+
+
+class SingleLayerNet:
+    def __init__(self, lr: float = 0.1, seed: int = 42, w_clip: float = 50.0):
+        rng = np.random.default_rng(seed)
+        self.w = rng.uniform(-0.5, 0.5, size=2).astype(float)
+        self.b = float(rng.uniform(-0.5, 0.5))
+        self.lr = float(lr)
+        self.w_clip = float(w_clip)
+
+    def forward_linear(self, x: np.ndarray) -> float:
+        return float(np.dot(self.w, x) + self.b)
+
+    def predict_class(self, x: np.ndarray, threshold: float = 0.5) -> int:
+        return step_01(self.forward_linear(x), threshold)
+
+    def train_epoch(self, X: np.ndarray, E: np.ndarray, shuffle: bool = True, seed: int = 0) -> float:
+        idx = np.arange(len(X))
+        if shuffle:
+            rng = np.random.default_rng(seed)
+            rng.shuffle(idx)
+
+        for i in idx:
+            x = X[i]
+            e = E[i]
+            y_lin = self.forward_linear(x)
+            err = e - y_lin
+
+            self.w += self.lr * err * x
+            self.b += self.lr * err
+
+            self.w = np.clip(self.w, -self.w_clip, self.w_clip)
+            self.b = float(np.clip(self.b, -self.w_clip, self.w_clip))
+
+        y_all = np.array([self.forward_linear(x) for x in X], dtype=float)
+        return mse_stable(y_all, E)
+
+
+def plot_mse_histories(histories: dict):
+    fig = plt.figure(figsize=(10, 6))
+    ax = fig.add_subplot(111)
+
+    for lr, hist in histories.items():
+        ax.plot(range(1, len(hist) + 1), hist, label=f"lr={lr}", linewidth=2)
+
+    ax.set_xlabel("Номер эпохи", fontsize=12)
+    ax.set_ylabel("MSE", fontsize=12)
+    ax.set_title("Зависимость MSE от номера эпохи", fontsize=14)
+    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=10)
+    ax.set_yscale('log')
+
+    fig.tight_layout()
+    fig.savefig("mse_plot.png", dpi=200)
+    plt.show()
+
+
+def plot_points_and_boundary(model: SingleLayerNet,
+                             X_raw: np.ndarray,
+                             E: np.ndarray,
+                             x_scale: np.ndarray,
+                             user_points=None,
+                             xlim=(-7, 7),
+                             ylim=(-7, 7),
+                             threshold: float = 0.5):
+    fig = plt.figure(figsize=(10, 8))
+    ax = fig.add_subplot(111)
+
+    cls0 = X_raw[E == 0]
+    cls1 = X_raw[E == 1]
+
+    if len(cls0):
+        ax.scatter(cls0[:, 0], cls0[:, 1], marker="o", s=150,
+                   color='blue', alpha=0.7, label="Класс 0 (e=0)", edgecolors='black')
+    if len(cls1):
+        ax.scatter(cls1[:, 0], cls1[:, 1], marker="^", s=150,
+                   color='red', alpha=0.7, label="Класс 1 (e=1)", edgecolors='black')
+
+    a1 = model.w[0] / x_scale[0]
+    a2 = model.w[1] / x_scale[1]
+    b = model.b
+
+    xs = np.linspace(xlim[0], xlim[1], 400)
+    if abs(a2) > 1e-12:
+        ys = (threshold - b - a1 * xs) / a2
+        ax.plot(xs, ys, 'g-', linewidth=2.5, label="Разделяющая линия")
+    else:
+        if abs(a1) > 1e-12:
+            x0 = (threshold - b) / a1
+            ax.axvline(x0, color='g', linewidth=2.5, label="Разделяющая линия")
+
+    if user_points:
+        up = np.array(user_points, dtype=float)
+        ax.scatter(up[:, 0], up[:, 1], marker="s", s=200,
+                   color='purple', alpha=0.7, label="Точки пользователя",
+                   edgecolors='black', zorder=5)
+
+    ax.axhline(0, color='black', linewidth=1, alpha=0.5)
+    ax.axvline(0, color='black', linewidth=1, alpha=0.5)
+    ax.set_xlim(*xlim)
+    ax.set_ylim(*ylim)
+    ax.set_xlabel("x1", fontsize=12)
+    ax.set_ylabel("x2", fontsize=12)
+    ax.set_title("Точки обучающей выборки и граница классов", fontsize=14)
+    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=11, loc='upper right')
+
+    fig.tight_layout()
+    fig.savefig("decision_boundary.png", dpi=200)
+    plt.show()
+
+
+def main():
+    learning_rates = [0.01, 0.05, 0.1, 0.2, 0.5, 0.8]
+    max_epochs = 100
+    threshold = 0.5
+
+    histories = {}
+    best_model = None
+    best_lr = None
+    best_final_mse = float("inf")
+
+    print("=" * 60)
+    print("ОБУЧЕНИЕ ОДНОСЛОЙНОЙ НЕЙРОННОЙ СЕТИ")
+    print("=" * 60)
+    print(f"Данные: {X_raw.tolist()}")
+    print(f"Целевые значения: {E.tolist()}")
+    print("-" * 60)
+
+    for lr in learning_rates:
+        model = SingleLayerNet(lr=lr, seed=42, w_clip=50.0)
+        hist = []
+
+        for ep in range(max_epochs):
+            cur_mse = model.train_epoch(X, E, shuffle=True, seed=1000 + ep)
+            hist.append(cur_mse)
+            if cur_mse < 1e-8:
+                break
+
+        histories[lr] = hist
+        print(f"lr = {lr:4.2f}: итоговая MSE = {hist[-1]:.2e}, эпох = {len(hist)}")
+
+        if hist[-1] < best_final_mse:
+            best_final_mse = hist[-1]
+            best_model = model
+            best_lr = lr
+
+    print("-" * 60)
+    print("ЛУЧШИЙ РЕЗУЛЬТАТ")
+    print(f"  lr = {best_lr}")
+    print(f"  w1 = {best_model.w[0]:.6f}, w2 = {best_model.w[1]:.6f}")
+    print(f"  b  = {best_model.b:.6f}")
+    print(f"  final MSE = {best_final_mse:.2e}")
+    print("-" * 60)
+
+    print("\nПРОВЕРКА КЛАССИФИКАЦИИ ОБУЧАЮЩИХ ТОЧЕК")
+    print("-" * 40)
+    for x_raw, e in zip(X_raw, E):
+        x_norm = x_raw / x_scale
+        y = best_model.predict_class(x_norm, threshold=threshold)
+        result = "✓" if y == e else "✗"
+        print(f"x=[{x_raw[0]:3.0f}, {x_raw[1]:3.0f}] -> предсказание: {y} (цель: {int(e)}) {result}")
+
+    print("\nПостроение графиков...")
+    plot_mse_histories(histories)
+    plot_points_and_boundary(best_model, X_raw, E, x_scale, user_points=None, threshold=threshold)
+
+    print("\n" + "=" * 60)
+    print("РЕЖИМ ФУНКЦИОНИРОВАНИЯ")
+    print("=" * 60)
+    print("Введите координаты x1 x2 для классификации")
+    print("Для выхода введите 'q'")
+    print("-" * 40)
+
+    user_points = []
+    while True:
+        s = input("x1 x2 > ").strip()
+        if s.lower() in ("q", "quit", "exit"):
+            break
+
+        try:
+            parts = s.replace(",", " ").split()
+            if len(parts) != 2:
+                print("Ошибка: введите два числа через пробел")
+                continue
+
+            x1_str, x2_str = parts
+            x_user_raw = np.array([float(x1_str), float(x2_str)], dtype=float)
+        except ValueError:
+            print("Ошибка: введите корректные числа")
+            continue
+        except Exception:
+            print("Ошибка: два числа через пробел или 'q' для выхода")
+            continue
+
+        x_user_norm = x_user_raw / x_scale
+        y_class = best_model.predict_class(x_user_norm, threshold=threshold)
+        print(f"Класс сети: {y_class}")
+
+        user_points.append([x_user_raw[0], x_user_raw[1]])
+
+        plot_points_and_boundary(best_model, X_raw, E, x_scale,
+                                 user_points=user_points, threshold=threshold)
+
+
+if __name__ == "__main__":
+main()

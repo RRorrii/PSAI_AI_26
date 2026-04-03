@@ -197,13 +197,19 @@ def main():
 
     p_tr1, c_tr1 = forward(Xtr, w1, t1)
     p_te1, c_te1 = forward(Xte, w1, t1)
-
     acc_tr = score(Ytr, c_tr1)
     acc_te = score(Yte, c_te1)
 
+    p_tr2, c_tr2 = forward(Xtr, w2, t2)
+    p_te2, c_te2 = forward(Xte, w2, t2)
+    acc_tr2 = score(Ytr, c_tr2)
+    acc_te2 = score(Yte, c_te2)
+
     print("\n--- Итоговая точность ---")
-    print(f"Train accuracy: {acc_tr:.2f}%")
-    print(f"Test accuracy:  {acc_te:.2f}%")
+    print(f"Train accuracy (fixed):      {acc_tr:.2f}%")
+    print(f"Test accuracy  (fixed):      {acc_te:.2f}%")
+    print(f"Train accuracy (adaptive):   {acc_tr2:.2f}%")
+    print(f"Test accuracy  (adaptive):   {acc_te2:.2f}%")
 
     print("\nПримеры предсказаний (первые 5):")
     for i in range(min(5, len(Xte))):
